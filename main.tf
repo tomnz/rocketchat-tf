@@ -18,8 +18,8 @@ variable "admin_username" {
 
 variable "vm_size" {
   type = string
-  # Recommend something with 4GB+ of RAM at a minimum
-  default = "Standard_DS3_v2"
+  # Recommend something with ~3GB+ of RAM at a minimum
+  default = "Standard_DS1_v2"
   description = "VM size (one of https://docs.microsoft.com/en-us/azure/templates/microsoft.compute/virtualmachines#HardwareProfile)"
 }
 
@@ -63,7 +63,7 @@ resource "azurerm_subnet" "subnet" {
 # Create public IP
 resource "azurerm_public_ip" "publicip" {
   name                = "${var.prefix}PublicIP"
-  location            = var.location
+  location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   allocation_method   = "Static"
 }
@@ -72,7 +72,7 @@ resource "azurerm_public_ip" "publicip" {
 # Create Network Security Group and rule
 resource "azurerm_network_security_group" "nsg" {
   name                = "${var.prefix}NSG"
-  location            = var.location
+  location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
   security_rule {
@@ -113,7 +113,7 @@ resource "azurerm_network_security_group" "nsg" {
 # Create network interface
 resource "azurerm_network_interface" "nic" {
   name                      = "${var.prefix}NIC"
-  location                  = var.location
+  location                  = azurerm_resource_group.rg.location
   resource_group_name       = azurerm_resource_group.rg.name
 
   ip_configuration {
@@ -127,7 +127,7 @@ resource "azurerm_network_interface" "nic" {
 # Create a Linux virtual machine
 resource "azurerm_linux_virtual_machine" "vm" {
   name                  = "${var.prefix}VM"
-  location              = var.location
+  location              = azurerm_resource_group.rg.location
   resource_group_name   = azurerm_resource_group.rg.name
   network_interface_ids = [azurerm_network_interface.nic.id]
   size               = var.vm_size
@@ -156,7 +156,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 # Create and mount a data disk to the VM
 resource "azurerm_managed_disk" "vmdata1" {
   name                 = "${var.prefix}VM-DataDisk-1"
-  location             = var.location
+  location             = azurerm_resource_group.rg.location
   resource_group_name  = azurerm_resource_group.rg.name
   storage_account_type = "Premium_LRS"
   create_option        = "Empty"
@@ -170,6 +170,54 @@ resource "azurerm_virtual_machine_data_disk_attachment" "vmdata" {
   caching            = "ReadWrite"
 }
 
+# Create and mount a backup disk to the VM
+resource "azurerm_managed_disk" "vmbackup1" {
+  name                 = "${var.prefix}VM-BackupDisk-1"
+  location             = azurerm_resource_group.rg.location
+  resource_group_name  = azurerm_resource_group.rg.name
+  storage_account_type = "Standard_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = 64
+}
+
+resource "azurerm_virtual_machine_data_disk_attachment" "vmbackup" {
+  managed_disk_id    = azurerm_managed_disk.vmbackup1.id
+  virtual_machine_id = azurerm_linux_virtual_machine.vm.id
+  lun                = "11"
+  caching            = "ReadWrite"
+}
+
+# Configure backup policy
+resource "azurerm_recovery_services_vault" "vault" {
+  name                = "${var.prefix}BackupVault"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "Standard"
+}
+
+resource "azurerm_backup_policy_vm" "vm" {
+  name                = "${var.prefix}BackupVM"
+  resource_group_name = azurerm_resource_group.rg.name
+  recovery_vault_name = azurerm_recovery_services_vault.vault.name
+
+  backup {
+    frequency = "Daily"
+    time      = "23:00"
+  }
+
+  retention_daily {
+    count = 7
+  }
+}
+
+resource "azurerm_backup_protected_vm" "protectedvm" {
+  resource_group_name = azurerm_resource_group.rg.name
+  recovery_vault_name = azurerm_recovery_services_vault.vault.name
+  source_vm_id        = azurerm_linux_virtual_machine.vm.id
+  backup_policy_id    = azurerm_backup_policy_vm.vm.id
+}
+
+# Output IP address
 data "azurerm_public_ip" "ip" {
   name                = azurerm_public_ip.publicip.name
   resource_group_name = azurerm_linux_virtual_machine.vm.resource_group_name
