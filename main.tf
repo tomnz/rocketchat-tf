@@ -110,6 +110,12 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
+# Associate security group with subnet
+resource "azurerm_subnet_network_security_group_association" "subnetNSG" {
+  subnet_id = azurerm_subnet.subnet.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
+}
+
 # Create network interface
 resource "azurerm_network_interface" "nic" {
   name                      = "${var.prefix}NIC"
@@ -193,6 +199,7 @@ resource "azurerm_recovery_services_vault" "vault" {
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   sku                 = "Standard"
+  soft_delete_enabled = false
 }
 
 resource "azurerm_backup_policy_vm" "vm" {
