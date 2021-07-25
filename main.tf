@@ -19,7 +19,7 @@ variable "admin_username" {
 variable "vm_size" {
   type = string
   # Recommend something with ~3GB+ of RAM at a minimum
-  default = "Standard_DS1_v2"
+  default = "Standard_DS2_v2"
   description = "VM size (one of https://docs.microsoft.com/en-us/azure/templates/microsoft.compute/virtualmachines#HardwareProfile)"
 }
 
@@ -41,11 +41,14 @@ provider "azurerm" {
   features {}
 }
 
+# Resource Group encapsulates all of the other resources below
 resource "azurerm_resource_group" "rg" {
   name     = "${var.prefix}RG"
   location = var.location
 }
 
+# Configure networking - need a virtual network, subnet, and public (external)
+# IP address
 resource "azurerm_virtual_network" "vnet" {
     name                = "${var.prefix}VNet"
     address_space       = ["10.0.0.0/16"]
@@ -60,7 +63,6 @@ resource "azurerm_subnet" "subnet" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# Create public IP
 resource "azurerm_public_ip" "publicip" {
   name                = "${var.prefix}PublicIP"
   location            = azurerm_resource_group.rg.location
@@ -69,7 +71,7 @@ resource "azurerm_public_ip" "publicip" {
 }
 
 
-# Create Network Security Group and rule
+# Create Network Security Group and rules
 resource "azurerm_network_security_group" "nsg" {
   name                = "${var.prefix}NSG"
   location            = azurerm_resource_group.rg.location
@@ -116,7 +118,7 @@ resource "azurerm_subnet_network_security_group_association" "subnetNSG" {
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
-# Create network interface
+# Create network interface for VM
 resource "azurerm_network_interface" "nic" {
   name                      = "${var.prefix}NIC"
   location                  = azurerm_resource_group.rg.location
@@ -181,6 +183,7 @@ resource "azurerm_managed_disk" "vmbackup1" {
   name                 = "${var.prefix}VM-BackupDisk-1"
   location             = azurerm_resource_group.rg.location
   resource_group_name  = azurerm_resource_group.rg.name
+  # Typically we use a lower
   storage_account_type = "Standard_LRS"
   create_option        = "Empty"
   disk_size_gb         = 64
